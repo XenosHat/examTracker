@@ -1114,9 +1114,9 @@ body{
   transition:transform 0.25s, opacity 0.25s;
   transform-origin:center;
 }
-.hamburger.open span:nth-child(1){transform:translateY(7px) rotate(45deg);}
-.hamburger.open span:nth-child(2){opacity:0;transform:scaleX(0);}
-.hamburger.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg);}
+.hamburger.open span:nth-child(1){display:none;transform:translateY(7px) rotate(45deg);}
+.hamburger.open span:nth-child(2){display:none;opacity:0;transform:scaleX(0);}
+.hamburger.open span:nth-child(3){display:none;transform:translateY(-7px) rotate(-45deg);}
 
 /* ── SIDEBAR OVERLAY (mobile backdrop) ── */
 .sidebar-backdrop{
