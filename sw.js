@@ -34,10 +34,10 @@ self.addEventListener('message', (event) => {
     const timeStr = formatMMSS(data.remainingMs);
     const icon = data.mode === 'focus' ? '🍅' : '☕';
     self.registration.showNotification(`${icon} ${data.modeLabel || data.mode} — ${timeStr} remaining`, {
-      tag: 'Pomodoro is running…',
+      tag: LIVE_TAG,
       renotify: false,
       silent: true,
-      body: LIVE_TAG,
+      body: 'Pomodoro is running…',
       icon: 'https://files.catbox.moe/0pvkt0.png',
       badge: 'https://files.catbox.moe/0pvkt0.png',
       requireInteraction: false,
