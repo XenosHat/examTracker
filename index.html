@@ -1594,7 +1594,7 @@ body{
 
 .todo-overdue-banner{
   background:rgba(239,71,111,0.08);border:1px solid rgba(239,71,111,0.25);
-  border-radius:12px;padding:10px 12px;margin-top:16px;
+  border-radius:18px;padding:16px 20px;
 }
 .todo-overdue-heading{
   font-size:11px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;
@@ -2113,9 +2113,9 @@ body{
 
           <div class="todo-completed-section" id="todo-completed-wrap" style="display:none;">
             <button class="todo-completed-toggle" onclick="todoToggleCompletedList()">
-              <span id="todo-completed-chevron">▸</span> Completed (<span id="todo-completed-count">0</span>)
+              <span id="todo-completed-chevron">▾</span> Completed (<span id="todo-completed-count">0</span>)
             </button>
-            <div class="todo-list" id="todo-completed-list" style="display:none;margin-top:8px;"></div>
+            <div class="todo-list" id="todo-completed-list" style="margin-top:8px;"></div>
           </div>
         </div>
 
@@ -2135,11 +2135,11 @@ body{
             <div class="sort-menu" id="todo-history-menu" style="width:100%;max-height:280px;overflow-y:auto;"></div>
           </div>
         </div>
-      </div>
 
-      <div class="todo-overdue-banner" id="todo-overdue-banner" style="display:none;">
-        <div class="todo-overdue-heading">⚠️ Overdue — still pending from before today</div>
-        <div id="todo-overdue-list"></div>
+        <div class="todo-overdue-banner" id="todo-overdue-banner" style="display:none;">
+          <div class="todo-overdue-heading">⚠️ Overdue — still pending from before today</div>
+          <div id="todo-overdue-list"></div>
+        </div>
       </div>
     </div>
 
