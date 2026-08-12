@@ -1577,6 +1577,12 @@ body{
 }
 .todo-tab:hover{background:rgba(255,255,255,0.05);color:var(--text);}
 .todo-tab.active{background:rgba(34,201,122,0.15);color:var(--green);border-color:rgba(34,201,122,0.4);}
+.todo-tab-count{
+  display:inline-block;margin-left:5px;font-size:10px;font-weight:800;
+  background:rgba(255,255,255,0.1);border-radius:10px;padding:1px 7px;
+  color:var(--muted2);
+}
+.todo-tab.active .todo-tab-count{background:rgba(34,201,122,0.25);color:var(--green);}
 .todo-date-picker{
   display:none;background:var(--surface);border:1px solid var(--border2);
   border-radius:20px;color:var(--text);font-family:inherit;font-size:12px;
@@ -2096,8 +2102,8 @@ body{
       <div class="todo-layout">
         <div class="todo-main-card">
           <div class="todo-tabs">
-            <button class="todo-tab active" id="todo-tab-today" onclick="todoSwitchTab('today')">☀️ Today</button>
-            <button class="todo-tab" id="todo-tab-tomorrow" onclick="todoSwitchTab('tomorrow')">🌤️ Tomorrow</button>
+            <button class="todo-tab active" id="todo-tab-today" onclick="todoSwitchTab('today')">☀️ Today <span class="todo-tab-count" id="todo-tab-today-count">0</span></button>
+            <button class="todo-tab" id="todo-tab-tomorrow" onclick="todoSwitchTab('tomorrow')">🌤️ Tomorrow <span class="todo-tab-count" id="todo-tab-tomorrow-count">0</span></button>
             <button class="todo-tab" id="todo-tab-custom" onclick="todoSwitchTab('custom')">📅 <span id="todo-custom-tab-label">Pick a Date</span></button>
             <input type="date" id="todo-date-picker" class="todo-date-picker" onchange="todoPickDate(this.value)"/>
           </div>
@@ -6274,7 +6280,20 @@ function todoUpdateSidebarBadge() {
   const total = pendingToday + todoOverdueList().length;
   el.textContent = total ? total : '';
 }
+function todoUpdateTabCounts() {
+  const today = todoDateStr(), tomorrow = todoDateStrOffset(1);
+  let todayCount = 0, tomorrowCount = 0;
+  Object.values(todos||{}).forEach(t => {
+    if(t.date === today) todayCount++;
+    else if(t.date === tomorrow) tomorrowCount++;
+  });
+  const todayEl = document.getElementById('todo-tab-today-count');
+  const tomorrowEl = document.getElementById('todo-tab-tomorrow-count');
+  if(todayEl) todayEl.textContent = todayCount;
+  if(tomorrowEl) tomorrowEl.textContent = tomorrowCount;
+}
 function todoRenderList() {
+  todoUpdateTabCounts();
   const listEl = document.getElementById('todo-list');
   if(!listEl) return;
   const completedWrap  = document.getElementById('todo-completed-wrap');
