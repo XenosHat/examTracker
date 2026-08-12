@@ -6315,6 +6315,7 @@ function todoRenderList() {
             <span class="todo-overdue-reschedule">
               <input type="date" onchange="todoRescheduleTask('${t.id}', this.value)" title="Reschedule"/>
             </span>
+            <button class="todo-icon-btn danger" onclick="todoDeleteTask('${t.id}')" title="Delete">🗑</button>
           </div>
         </div>`).join('');
     } else {
