@@ -5599,6 +5599,40 @@ function pomFinishOvertime() {
   pomOnLiveChanged();
 }
 
+// User discards an overtime (extra-time) focus session: the ORIGINAL marked
+// duration still counted as a real, completed focus session and gets logged
+// — only the extra time on top of it is thrown away. Advances to the next
+// mode exactly like a normal completion would (respecting Loop).
+function pomDiscardOvertime() {
+  if(!pomLive || !pomLive.overtime) { pomReset(); return; }
+  const mode = pomLive.mode;
+  const cycleIndex = pomLive.cycleIndex || 0;
+  const durMin = Math.max(1, Math.round((pomLive.totalMs || pomDurationMs(mode)) / 60000));
+
+  const next = pomNextModeAfter(mode, cycleIndex);
+  const loop = !!(pomSettings && pomSettings.loop);
+  const nextDur = pomDurationMs(next.mode);
+
+  const newLive = {
+    mode: next.mode,
+    cycleIndex: next.cycleIndex,
+    status: loop ? 'running' : 'idle',
+    endAt: loop ? pomServerNow() + nextDur : 0,
+    remainingMs: nextDur,
+    totalMs: nextDur,
+    overtime: false, extraMs: 0, overtimeStartAt: 0,
+    updatedAt: pomServerNow(),
+    updatedBy: POM_DEVICE_ID
+  };
+
+  pomLive = newLive;
+  db.ref(pomLivePath()).set(newLive).catch(err => console.warn('Pomodoro sync error:', err));
+  pomLogSession(mode, durMin);
+  pomClearSWLive();
+  showToast(`📝 Focus session logged — ${durMin}m (extra time discarded).`);
+  pomOnLiveChanged();
+}
+
 // Removed the once('value') read-check that was here before: on mobile
 // browsers that read can return a stale cached value, so the
 // `current.endAt !== expectedEndAt` guard would fail and the function
@@ -5886,12 +5920,12 @@ function pomRenderTimerUI(remainingMs, extraMs) {
       ? `
       <button class="pom-btn pom-btn-primary pom-btn-stop" onclick="pomFinishOvertime()">⏹ Stop &amp; Log Session</button>
       <button class="pom-btn pom-btn-ghost" onclick="pomPause()">⏸ Pause</button>
-      <button class="pom-btn pom-btn-ghost" onclick="pomReset()">↺ Discard</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomDiscardOvertime()" title="Log the marked focus session, drop the extra time">↺ Discard Extra</button>
       <button class="pom-btn pom-btn-ghost" onclick="pomResetCycle()" title="Reset whole cycle back to Focus 1">⏮ Reset Cycle</button>`
       : `
       <button class="pom-btn pom-btn-primary pom-btn-stop" onclick="pomFinishOvertime()">⏹ Stop &amp; Log Session</button>
       <button class="pom-btn pom-btn-ghost" onclick="pomResume()">▶ Resume</button>
-      <button class="pom-btn pom-btn-ghost" onclick="pomReset()">↺ Discard</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomDiscardOvertime()" title="Log the marked focus session, drop the extra time">↺ Discard Extra</button>
       <button class="pom-btn pom-btn-ghost" onclick="pomResetCycle()" title="Reset whole cycle back to Focus 1">⏮ Reset Cycle</button>`;
     return;
   }
