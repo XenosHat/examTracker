@@ -1192,6 +1192,8 @@ body{
   margin-bottom:24px;
 }
 .pom-mode-badge.mode-break{background:rgba(6,214,160,0.15);color:var(--green);}
+.pom-mode-badge.mode-overtime{background:rgba(239,71,111,0.15);color:var(--red);animation:pomOvertimePulse 1.6s ease-in-out infinite;}
+@keyframes pomOvertimePulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
 .pom-ring-wrap{position:relative;width:100%;max-width:340px;aspect-ratio:1/1;margin:0 auto;}
 .pom-ring-wrap svg{width:100%;height:100%;transform:rotate(-90deg);}
 .pom-ring-center{
@@ -1216,6 +1218,8 @@ body{
 .pom-btn-secondary:hover{background:rgba(255,255,255,0.1);}
 .pom-btn-ghost{background:none;color:var(--muted2);border:1px solid var(--border2);}
 .pom-btn-ghost:hover{color:var(--text);border-color:var(--border2);}
+.pom-btn-stop{background:linear-gradient(90deg,#ef476f,#d63a5f);color:#fff;}
+.pom-btn-stop:hover{opacity:0.9;transform:translateY(-1px);}
 .pom-loop-row{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   width:100%;margin-top:26px;padding-top:20px;border-top:1px solid var(--border);
@@ -2858,7 +2862,7 @@ function pomDefaultSettings() {
 }
 function pomDefaultLive() {
   const s = pomSettings || pomDefaultSettings();
-  return { status:'idle', mode:'focus', cycleIndex:0, endAt:0, remainingMs: s.focusMin*60000, totalMs: s.focusMin*60000, updatedAt: Date.now(), updatedBy: POM_DEVICE_ID };
+  return { status:'idle', mode:'focus', cycleIndex:0, endAt:0, remainingMs: s.focusMin*60000, totalMs: s.focusMin*60000, overtime:false, extraMs:0, overtimeStartAt:0, updatedAt: Date.now(), updatedBy: POM_DEVICE_ID };
 }
 
 // ── TO-DO STATE ──
@@ -5447,40 +5451,50 @@ function pomStart() {
   pomUnlockAudio();
   const mode = pomLive?.mode || 'focus';
   const dur = pomLive && pomLive.remainingMs ? pomLive.remainingMs : pomDurationMs(mode);
-  pomWriteLive({ status:'running', mode, endAt: pomServerNow() + dur, remainingMs: dur, totalMs: dur });
+  pomWriteLive({ status:'running', mode, endAt: pomServerNow() + dur, remainingMs: dur, totalMs: dur, overtime:false, extraMs:0, overtimeStartAt:0 });
 }
 function pomPause() {
   if(!pomLive || pomLive.status !== 'running') return;
+  if(pomLive.overtime) {
+    const extra = (pomLive.extraMs||0) + Math.max(0, pomServerNow() - (pomLive.overtimeStartAt || pomServerNow()));
+    pomWriteLive({ status:'paused', extraMs: extra, overtimeStartAt:0 });
+    return;
+  }
   const remaining = Math.max(0, pomLive.endAt - pomServerNow());
   pomWriteLive({ status:'paused', remainingMs: remaining, endAt:0 });
 }
 function pomResume() {
   pomUnlockAudio();
   if(!pomLive || pomLive.status !== 'paused') return;
+  if(pomLive.overtime) {
+    pomWriteLive({ status:'running', overtimeStartAt: pomServerNow() });
+    return;
+  }
   const remaining = pomLive.remainingMs || pomDurationMs(pomLive.mode);
   pomWriteLive({ status:'running', endAt: pomServerNow() + remaining, totalMs: pomLive.totalMs || pomDurationMs(pomLive.mode) });
 }
 function pomReset() {
   const mode = pomLive?.mode || 'focus';
   const dur = pomDurationMs(mode);
-  pomWriteLive({ status:'idle', endAt:0, remainingMs: dur, totalMs: dur });
+  pomWriteLive({ status:'idle', endAt:0, remainingMs: dur, totalMs: dur, overtime:false, extraMs:0, overtimeStartAt:0 });
 }
 function pomResetCycle() {
   if(!confirm('Reset the whole Pomodoro cycle back to "Focus 1"? This stops the current session and clears your progress toward the next long break.')) return;
   const dur = pomDurationMs('focus');
-  pomWriteLive({ mode:'focus', cycleIndex:0, status:'idle', endAt:0, remainingMs: dur, totalMs: dur });
+  pomWriteLive({ mode:'focus', cycleIndex:0, status:'idle', endAt:0, remainingMs: dur, totalMs: dur, overtime:false, extraMs:0, overtimeStartAt:0 });
   showToast('🔄 Cycle reset to Focus 1.');
 }
 function pomSkip() {
+  if(pomLive && pomLive.overtime) { pomFinishOvertime(); return; }
   const mode = pomLive?.mode || 'focus';
   const cycleIndex = pomLive?.cycleIndex || 0;
   const next = pomNextModeAfter(mode, cycleIndex);
   const loop = pomSettings?.loop;
   const nextDur = pomDurationMs(next.mode);
   if(loop) {
-    pomWriteLive({ mode: next.mode, cycleIndex: next.cycleIndex, status:'running', endAt: pomServerNow()+nextDur, remainingMs: nextDur, totalMs: nextDur });
+    pomWriteLive({ mode: next.mode, cycleIndex: next.cycleIndex, status:'running', endAt: pomServerNow()+nextDur, remainingMs: nextDur, totalMs: nextDur, overtime:false, extraMs:0, overtimeStartAt:0 });
   } else {
-    pomWriteLive({ mode: next.mode, cycleIndex: next.cycleIndex, status:'idle', endAt:0, remainingMs: nextDur, totalMs: nextDur });
+    pomWriteLive({ mode: next.mode, cycleIndex: next.cycleIndex, status:'idle', endAt:0, remainingMs: nextDur, totalMs: nextDur, overtime:false, extraMs:0, overtimeStartAt:0 });
   }
 }
 function pomToggleLoop(checked) {
@@ -5491,10 +5505,34 @@ function pomToggleLoop(checked) {
 // ── ticking (timestamp-based, drift-free) ──
 function pomTick() {
   if(!pomLive) return;
+
+  // ── Overtime: the marked focus duration is up (Loop is off) and the user
+  // hasn't stopped yet — keep counting UP instead of ending the session.
+  if(pomLive.overtime) {
+    const extra = (pomLive.extraMs||0) + (pomLive.status==='running' ? Math.max(0, pomServerNow() - (pomLive.overtimeStartAt || pomServerNow())) : 0);
+    pomRenderTimerUI(0, extra);
+    pomRenderWidget();
+    if(pomLive.status === 'running') {
+      const now = Date.now();
+      if(now - _pomLastSWUpdate > 4000) {
+        _pomLastSWUpdate = now;
+        pomSendSWUpdate(pomLive.mode, 0, extra);
+      }
+    }
+    return;
+  }
+
   let remaining;
   if(pomLive.status === 'running') {
     remaining = pomLive.endAt - pomServerNow();
-    if(remaining <= 0) { pomHandleComplete(); return; }
+    if(remaining <= 0) {
+      if(pomLive.mode === 'focus' && !(pomSettings && pomSettings.loop)) {
+        pomEnterOvertime();
+      } else {
+        pomHandleComplete();
+      }
+      return;
+    }
   } else {
     remaining = pomLive.remainingMs != null ? pomLive.remainingMs : pomDurationMs(pomLive.mode);
   }
@@ -5509,6 +5547,56 @@ function pomTick() {
       pomSendSWUpdate(pomLive.mode, remaining);
     }
   }
+}
+
+// Marked focus time just ran out and Loop is off: fire the completion alert
+// once (per the user's request), then switch into a count-up "extra" phase
+// instead of forcing the session to end. The session keeps running — mode,
+// cycle position, and totalMs (the originally marked duration) stay put —
+// until the user explicitly stops it via pomFinishOvertime().
+let _pomEnteringOvertime = false;
+function pomEnterOvertime() {
+  if(!pomLive || pomLive.overtime || _pomEnteringOvertime) return;
+  _pomEnteringOvertime = true;
+  pomPlayAlertSound();
+  pomSendSWComplete(pomLive.mode);
+  pomWriteLive({ overtime:true, extraMs:0, overtimeStartAt: pomServerNow() });
+  _pomEnteringOvertime = false;
+}
+
+// User stops an overtime (extra-time) focus session: log ONE merged session
+// (marked duration + extra), then advance to the next mode exactly like a
+// normal completion would (respecting Loop).
+function pomFinishOvertime() {
+  if(!pomLive || !pomLive.overtime) return;
+  const mode = pomLive.mode;
+  const cycleIndex = pomLive.cycleIndex || 0;
+  const extra = (pomLive.extraMs||0) + (pomLive.status==='running' ? Math.max(0, pomServerNow() - (pomLive.overtimeStartAt || pomServerNow())) : 0);
+  const totalMs = (pomLive.totalMs || pomDurationMs(mode)) + extra;
+  const durMin = Math.max(1, Math.round(totalMs/60000));
+
+  const next = pomNextModeAfter(mode, cycleIndex);
+  const loop = !!(pomSettings && pomSettings.loop);
+  const nextDur = pomDurationMs(next.mode);
+
+  const newLive = {
+    mode: next.mode,
+    cycleIndex: next.cycleIndex,
+    status: loop ? 'running' : 'idle',
+    endAt: loop ? pomServerNow() + nextDur : 0,
+    remainingMs: nextDur,
+    totalMs: nextDur,
+    overtime: false, extraMs: 0, overtimeStartAt: 0,
+    updatedAt: pomServerNow(),
+    updatedBy: POM_DEVICE_ID
+  };
+
+  pomLive = newLive;
+  db.ref(pomLivePath()).set(newLive).catch(err => console.warn('Pomodoro sync error:', err));
+  pomLogSession(mode, durMin);
+  pomClearSWLive();
+  showToast(`✅ Focus session logged — ${durMin}m total (${Math.round(extra/60000)}m extra).`);
+  pomOnLiveChanged();
 }
 
 // Removed the once('value') read-check that was here before: on mobile
@@ -5728,11 +5816,11 @@ function _pomSWReady(cb) {
   if(!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.ready.then(reg => { if(reg.active) cb(reg); }).catch(()=>{});
 }
-function pomSendSWUpdate(mode, remainingMs) {
+function pomSendSWUpdate(mode, remainingMs, extraMs) {
   if(!(pomSettings && pomSettings.notifEnabled)) return;
   if(!('Notification' in window) || Notification.permission !== 'granted') return;
   _pomSWReady(reg => {
-    reg.active.postMessage({ type:'pomodoro-update', mode, modeLabel: pomModeLabel(mode), remainingMs });
+    reg.active.postMessage({ type:'pomodoro-update', mode, modeLabel: pomModeLabel(mode), remainingMs, overtime: !!(pomLive && pomLive.overtime), extraMs: extraMs||0 });
   });
 }
 function pomSendSWComplete(mode) {
@@ -5753,27 +5841,38 @@ function pomFormatMMSS(ms) {
   return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
-function pomRenderTimerUI(remainingMs) {
+function pomRenderTimerUI(remainingMs, extraMs) {
   const timeEl = document.getElementById('pom-time-text');
   if(!timeEl || !pomLive) return; // view not on screen / not ready
   const mode = pomLive.mode;
-  const total = pomLive.totalMs || pomDurationMs(mode);
-  const elapsed = Math.min(total, Math.max(0, total - remainingMs));
+  const overtime = !!pomLive.overtime;
+  const circle = document.getElementById('pom-ring-circle');
   const circumference = 703.7;
-  const offset = circumference * (elapsed/total);
 
-  timeEl.textContent = pomFormatMMSS(remainingMs);
-  document.getElementById('pom-ring-circle').style.strokeDashoffset = offset;
-  document.getElementById('pom-ring-circle').style.stroke = pomIsBreak(mode) ? '#06d6a0' : '#f0a30a';
+  if(overtime) {
+    timeEl.textContent = '+' + pomFormatMMSS(extraMs||0);
+    circle.style.strokeDashoffset = 0;
+    circle.style.stroke = 'var(--red)';
+  } else {
+    const total = pomLive.totalMs || pomDurationMs(mode);
+    const elapsed = Math.min(total, Math.max(0, total - remainingMs));
+    const offset = circumference * (elapsed/total);
+    timeEl.textContent = pomFormatMMSS(remainingMs);
+    circle.style.strokeDashoffset = offset;
+    circle.style.stroke = pomIsBreak(mode) ? '#06d6a0' : '#f0a30a';
+  }
 
   const badge = document.getElementById('pom-mode-badge');
-  badge.textContent = (pomIsBreak(mode) ? '☕ ' : '🍅 ') + pomModeLabel(mode);
-  badge.classList.toggle('mode-break', pomIsBreak(mode));
+  badge.textContent = (pomIsBreak(mode) ? '☕ ' : '🍅 ') + pomModeLabel(mode) + (overtime ? ' · EXTRA' : '');
+  badge.classList.toggle('mode-break', pomIsBreak(mode) && !overtime);
+  badge.classList.toggle('mode-overtime', overtime);
 
   const cycleLabel = document.getElementById('pom-cycle-label');
   const s = pomSettings || pomDefaultSettings();
   if(mode === 'focus') {
-    cycleLabel.textContent = `Focus ${(pomLive.cycleIndex % s.longInterval) + 1} of ${s.longInterval}`;
+    cycleLabel.textContent = overtime
+      ? `Focus ${(pomLive.cycleIndex % s.longInterval) + 1} of ${s.longInterval} — marked time's up, still going`
+      : `Focus ${(pomLive.cycleIndex % s.longInterval) + 1} of ${s.longInterval}`;
   } else {
     cycleLabel.textContent = mode === 'long' ? 'Long Break' : 'Short Break';
   }
@@ -5782,6 +5881,20 @@ function pomRenderTimerUI(remainingMs) {
 
   // controls
   const controls = document.getElementById('pom-controls');
+  if(overtime) {
+    controls.innerHTML = pomLive.status === 'running'
+      ? `
+      <button class="pom-btn pom-btn-primary pom-btn-stop" onclick="pomFinishOvertime()">⏹ Stop &amp; Log Session</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomPause()">⏸ Pause</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomReset()">↺ Discard</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomResetCycle()" title="Reset whole cycle back to Focus 1">⏮ Reset Cycle</button>`
+      : `
+      <button class="pom-btn pom-btn-primary pom-btn-stop" onclick="pomFinishOvertime()">⏹ Stop &amp; Log Session</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomResume()">▶ Resume</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomReset()">↺ Discard</button>
+      <button class="pom-btn pom-btn-ghost" onclick="pomResetCycle()" title="Reset whole cycle back to Focus 1">⏮ Reset Cycle</button>`;
+    return;
+  }
   if(pomLive.status === 'running') {
     controls.innerHTML = `
       <button class="pom-btn pom-btn-primary" onclick="pomPause()">⏸ Pause</button>
@@ -5954,7 +6067,8 @@ function pomRenderWidget() {
   if(!statusEl || !pomSettings) return;
   const { focusMin, count } = pomTodayStats();
   const status = pomLive ? pomLive.status : 'idle';
-  statusEl.textContent = status==='running' ? 'Running' : (status==='paused' ? 'Paused' : 'Idle');
+  const overtime = !!(pomLive && pomLive.overtime);
+  statusEl.textContent = status==='running' ? (overtime ? 'Extra time' : 'Running') : (status==='paused' ? 'Paused' : 'Idle');
   statusEl.classList.remove('running','paused');
   if(status==='running') statusEl.classList.add('running');
   if(status==='paused') statusEl.classList.add('paused');

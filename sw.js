@@ -34,13 +34,18 @@ self.addEventListener('message', (event) => {
     // Title stays constant ("Pomodoro is running") so the notification doesn't
     // re-alert visually on each refresh; the actual mode + remaining time lives
     // in the body, which is what updates every few seconds.
-    const timeStr = formatMMSS(data.remainingMs);
+    // During "overtime" (marked focus time is up but Loop is off and the user
+    // hasn't stopped yet), the timer counts UP instead of down — show that
+    // as "+MM:SS extra" instead of a remaining-time countdown.
     const icon = data.mode === 'focus' ? '🍅' : '☕';
+    const timeStr = data.overtime
+      ? '+' + formatMMSS(data.extraMs || 0) + ' extra'
+      : formatMMSS(data.remainingMs) + ' remaining';
     self.registration.showNotification('Pomodoro is running', {
       tag: LIVE_TAG,
       renotify: false,
       silent: true,
-      body: `${icon} ${data.modeLabel || data.mode} — ${timeStr} remaining`,
+      body: `${icon} ${data.modeLabel || data.mode} — ${timeStr}`,
       icon: 'https://files.catbox.moe/0pvkt0.png',
       badge: 'https://files.catbox.moe/0pvkt0.png',
       requireInteraction: false,
